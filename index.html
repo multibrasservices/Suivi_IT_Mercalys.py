@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Graphe de Connaissances - Script d'Analyse Mercalys</title>
+    <link rel="icon" href="mon_logo.png" type="image/png">
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style type="text/css">
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            background-color: #f4f7f9;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        h1, h2 {
+            color: #0d3a5f;
+            text-align: center;
+        }
+        p {
+            text-align: center;
+            color: #555;
+        }
+        #graph-container {
+            display: flex;
+            flex-direction: row;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            background-color: #fff;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            height: 85vh;
+        }
+        #mynetwork {
+            width: 70%;
+            border-right: 1px solid #ccc;
+            height: 100%;
+        }
+        #info-panel {
+            width: 30%;
+            padding: 20px;
+            overflow-y: auto;
+            box-sizing: border-box;
+        }
+        #info-panel h3 {
+            margin-top: 0;
+            color: #005a9c;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 10px;
+        }
+        #info-panel p {
+            text-align: left;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        #info-panel ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        #info-panel li {
+            background-color: #eef5ff;
+            margin-bottom: 8px;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 13px;
+            word-wrap: break-word;
+            border-left: 4px solid #61affe;
+        }
+        footer {
+            text-align: center;
+            padding: 20px;
+            margin-top: 20px;
+            color: #777;
+            font-size: 12px;
+            border-top: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Graphe de Connaissances : Script d'Analyse d'Inventaire</h1>
+    <p>Cliquez sur un nœud pour explorer les composants du script et leurs interactions.</p>
+
+    <div id="graph-container">
+        <div id="mynetwork"></div>
+        <div id="info-panel">
+            <h3>Détails du Composant</h3>
+            <p>Sélectionnez un élément dans le graphe pour afficher sa description et son rôle dans l'application.</p>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        // Data mapping for node details
+        const nodeDetails = {
+            inputFile: {
+                title: "Fichier Excel d'Entrée",
+                description: "Le fichier Excel brut (L_CAD GENERAL) téléversé par l'utilisateur. C'est le point de départ de toute l'analyse.",
+                details: [
+                    "Source : st.sidebar.file_uploader",
+                    "Constante : MERCALYS_SHEET_NAME"
+                ]
+            },
+            corrTable: {
+                title: "Table de Corrélation",
+                description: "Un fichier Excel local ('tab_corr_sap_gadm_merc.xlsx') utilisé pour enrichir les données en joignant les informations de secteur et de rayon.",
+                details: [
+                    "Source : pd.read_excel(CORRELATION_TABLE_PATH)"
+                ]
+            },
+            dateParams: {
+                title: "Paramètres de Date",
+                description: "Les dates de début et de fin de la période d'inventaire, sélectionnées par l'utilisateur dans la barre latérale.",
+                details: [
+                    "Source : st.sidebar.date_input"
+                ]
+            },
+            processData: {
+                title: "Fonction `process_data`",
+                description: "La fonction centrale qui orchestre le nettoyage, la transformation et l'enrichissement des données. Elle prend le fichier brut et retourne un DataFrame propre.",
+                details: [
+                    "Appelle `extract_metadata` et `extraire_adr`",
+                    "Effectue la jointure avec la table de corrélation",
+                    "Calcule les colonnes 'Valo', 'INV', 'NOM_KEY'"
+                ]
+            },
+            dfFinal: {
+                title: "DataFrame Final",
+                description: "Le DataFrame principal après le traitement par `process_data`. Il contient toutes les données nettoyées et enrichies, prêtes à être filtrées et visualisées.",
+                details: [
+                    "Produit par : `process_data`",
+                    "Utilisé comme source pour tous les filtres"
+                ]
+            },
+            uiFilters: {
+                title: "Filtres Interactifs (UI)",
+                description: "Les widgets Streamlit (champs de texte, listes déroulantes) qui permettent à l'utilisateur d'affiner la sélection des données.",
+                details: [
+                    "Widgets : st.sidebar.text_input, st.sidebar.selectbox"
+                ]
+            },
+            dfFiltered: {
+                title: "DataFrame Filtré",
+                description: "Une copie du DataFrame Final, sur laquelle les filtres de l'utilisateur (secteur, rayon, statut d'inventaire) ont été appliqués.",
+                details: [
+                    "Source : DataFrame Final",
+                    "Base pour tous les affichages et calculs"
+                ]
+            },
+            kpi: {
+                title: "Indicateurs Clés (KPIs)",
+                description: "L'affichage des métriques principales : nom de la société, nombre de lignes sélectionnées et pourcentage d'avancement de l'inventaire.",
+                details: [
+                    "Widget : st.columns, st.metric",
+                    "Calculé à partir du DataFrame Filtré"
+                ]
+            },
+            summaryCards: {
+                title: "Cartes de Progression",
+                description: "Les cartes qui montrent l'avancement de l'inventaire par groupe (secteur, rayon, etc.), incluant la valeur en stock et le nombre d'articles.",
+                details: [
+                    "Widget : st.container(border=True)",
+                    "Données : Agrégation du DataFrame Filtré"
+                ]
+            },
+            dfDrilldown: {
+                title: "DataFrame Détaillé",
+                description: "Le sous-ensemble de données qui correspond aux groupes sélectionnés par l'utilisateur via le filtre `st.multiselect`. Il est utilisé pour les graphiques et le tableau final.",
+                details: [
+                    "Source : DataFrame Filtré",
+                    "Alimente les visualisations interactives"
+                ]
+            },
+            scatterPlot: {
+                title: "Graphique 'Scatter Plot'",
+                description: "Visualisation interactive (Plotly Express) montrant la relation entre la quantité en stock et la valeur, colorée par secteur.",
+                details: [
+                    "Widget : st.plotly_chart",
+                    "Bibliothèque : Plotly Express"
+                ]
+            },
+            pairPlot: {
+                title: "Graphique de Corrélations",
+                description: "Visualisation (Seaborn) optionnelle pour analyser les relations entre les variables numériques (PA NET, STOCK, Valo) sur un échantillon de données.",
+                details: [
+                    "Widget : st.pyplot (via st.checkbox)",
+                    "Bibliothèque : Seaborn, Matplotlib"
+                ]
+            },
+            dataTable: {
+                title: "Tableau des Données",
+                description: "L'affichage final du DataFrame détaillé, permettant à l'utilisateur de voir les données brutes qui correspondent à sa sélection.",
+                details: [
+                    "Widget : st.dataframe"
+                ]
+            },
+            excelExport: {
+                title: "Export Excel",
+                description: "La fonctionnalité de téléchargement qui convertit le DataFrame détaillé en un fichier Excel.",
+                details: [
+                    "Widget : st.download_button",
+                    "Fonction : `to_excel`"
+                ]
+            }
+        };
+
+        // Create nodes
+        const nodes = new vis.DataSet([
+            { id: "inputFile", label: "Fichier Excel", group: 0, mass: 3 },
+            { id: "corrTable", label: "Table Corrélation", group: 0, mass: 2 },
+            { id: "dateParams", label: "Param. Dates", group: 0, mass: 2 },
+            { id: "processData", label: "process_data()", group: 1, mass: 4 },
+            { id: "dfFinal", label: "DataFrame Final", group: 2, mass: 3 },
+            { id: "uiFilters", label: "Filtres UI", group: 3, mass: 2 },
+            { id: "dfFiltered", label: "DataFrame Filtré", group: 2, mass: 3 },
+            { id: "kpi", label: "KPIs", group: 4, mass: 1 },
+            { id: "summaryCards", label: "Cartes de Progression", group: 4, mass: 2 },
+            { id: "dfDrilldown", label: "DataFrame Détaillé", group: 2, mass: 3 },
+            { id: "scatterPlot", label: "Scatter Plot", group: 4, mass: 2 },
+            { id: "pairPlot", label: "Pairplot", group: 4, mass: 2 },
+            { id: "dataTable", label: "Tableau Données", group: 4, mass: 1 },
+            { id: "excelExport", label: "Export Excel", group: 5, mass: 2 },
+        ]);
+
+        // Create edges
+        const edges = new vis.DataSet([
+            { from: "inputFile", to: "processData", label: "est traité par" },
+            { from: "corrTable", to: "processData", label: "enrichit" },
+            { from: "dateParams", to: "processData", label: "configure" },
+            { from: "processData", to: "dfFinal", label: "produit" },
+            { from: "dfFinal", to: "dfFiltered", label: "est la source de" },
+            { from: "uiFilters", to: "dfFiltered", label: "filtre" },
+            { from: "dfFiltered", to: "kpi", label: "alimente" },
+            { from: "dfFiltered", to: "summaryCards", label: "alimente" },
+            { from: "dfFiltered", to: "dfDrilldown", label: "est la source de" },
+            { from: "dfDrilldown", to: "scatterPlot", label: "est visualisé par" },
+            { from: "dfDrilldown", to: "pairPlot", label: "est visualisé par" },
+            { from: "dfDrilldown", to: "dataTable", label: "est affiché dans" },
+            { from: "dfDrilldown", to: "excelExport", label: "est exporté via" },
+        ]);
+
+        // Create a network
+        const container = document.getElementById('mynetwork');
+        const data = {
+            nodes: nodes,
+            edges: edges,
+        };
+        const options = {
+            nodes: {
+                shape: 'dot',
+                size: 20,
+                font: {
+                    size: 14,
+                    color: '#333'
+                },
+                borderWidth: 2,
+            },
+            edges: {
+                width: 1,
+                font: {
+                    size: 10,
+                    align: 'middle'
+                },
+                arrows: {
+                    to: { enabled: true, scaleFactor: 0.5 }
+                },
+                color: {
+                    color: '#848484',
+                    highlight: '#005a9c'
+                }
+            },
+            groups: {
+                0: { color: { background: '#ffa07a', border: '#fa8072' } }, // Inputs
+                1: { color: { background: '#9d4edd', border: '#5a189a' }, font: { color: 'white' } }, // Core Function
+                2: { color: { background: '#61affe', border: '#1e90ff' } }, // DataFrames
+                3: { color: { background: '#fca130', border: '#e85d04' } }, // UI Controls
+                4: { color: { background: '#56cfe1', border: '#00b4d8' } }, // UI Display
+                5: { color: { background: '#49cc90', border: '#2b9348' }, font: { color: 'white' } }  // Outputs
+            },
+            physics: {
+                barnesHut: {
+                    gravitationalConstant: -4000,
+                    centralGravity: 0.15,
+                    springLength: 150,
+                },
+            },
+            interaction: {
+                hover: true,
+            },
+        };
+        const network = new vis.Network(container, data, options);
+
+        // Event listener for clicks
+        network.on("click", function (params) {
+            const infoPanel = document.getElementById('info-panel');
+            if (params.nodes.length > 0) {
+                const nodeId = params.nodes[0];
+                const details = nodeDetails[nodeId];
+                if (details) {
+                    let detailsHtml = '<ul>';
+                    details.details.forEach(line => {
+                        detailsHtml += `<li>${line}</li>`;
+                    });
+                    detailsHtml += '</ul>';
+
+                    infoPanel.innerHTML = `
+                        <h3>${details.title}</h3>
+                        <p>${details.description}</p>
+                        <h4>Détails Techniques :</h4>
+                        ${detailsHtml}
+                    `;
+                }
+            } else {
+                 infoPanel.innerHTML = `
+                    <h3>Détails du Composant</h3>
+                    <p>Sélectionnez un élément dans le graphe pour afficher sa description et son rôle dans l'application.</p>
+                `;
+            }
+        });
+    </script>
+
+    <footer>
+        <p>&copy; 2025 Graphe généré à partir du script Python | Version: 2025.09.02</p>
+    </footer>
+
+</body>
+</html>
